@@ -1,0 +1,84 @@
+apiVersion: monitoring.coreos.com/v1 
+kind: Prometheus
+metadata:
+  name: prom
+  annotations:
+    prom-shard-autoscaling.zbialik.io/enable: 'true'
+    prom-shard-autoscaling.zbialik.io/disable-scale-down: 'false'
+    prom-shard-autoscaling.zbialik.io/min-shards: '1'
+    prom-shard-autoscaling.zbialik.io/max-shards: '7'
+    prom-shard-autoscaling.zbialik.io/min-warmup-scale-up: '60'
+    prom-shard-autoscaling.zbialik.io/min-warmup-scale-down: '1800'
+    prom-shard-autoscaling.zbialik.io/min-cooldown: '1800'
+    prom-shard-autoscaling.zbialik.io/desired-shards-algorithm: 'double-or-decrement'
+    prom-shard-autoscaling.zbialik.io/current-usage-calculator: 'avg'
+    prom-shard-autoscaling.zbialik.io/target-memory-util-scale-up: '0.9'
+    prom-shard-autoscaling.zbialik.io/target-memory-util-scale-down: '0.5'
+    prom-shard-autoscaling.zbialik.io/min-decrement: '0'
+    prom-shard-autoscaling.zbialik.io/min-increment: '0'
+    prom-shard-autoscaling.zbialik.io/max-decrement: '0'
+    prom-shard-autoscaling.zbialik.io/max-increment: '0'
+- target:
+spec:
+  containers:
+  - name: snapshot-uploader-python
+    image: # INSERT PYTHON3 IMAGE WITH BOTO3
+    stdin: true
+    tty: true
+    volumeMounts:
+    - mountPath: /prometheus
+      name: prometheus-main-db
+      subPath: prometheus-db
+    - mountPath: /scripts/snapshot-upload.py
+      name: snapshot-upload-python-script
+      subPath: snapshot-upload.py
+    - mountPath: /etc/prometheus/config_out
+      name: config-out # volume is auto-created for statefulset (emptyDir) by prometheus-operator
+    env:
+      - name: OBJSTORE_CONFIG
+        valueFrom:
+          secretKeyRef:
+            key: thanos.yaml
+            name: thanos-objectstorage
+    lifecycle:
+      preStop:
+        exec:
+          command: 
+          - python 
+          - /scripts/snapshot-upload.py
+  - name: prometheus
+    lifecycle:
+      preStop:
+        exec:
+          command: # delay shutdown to provide the snapshot-uploader time to execute tsdb snapshot + s3 upload
+          - /bin/sh
+          - -c
+          - sleep 15
+  enableAdminAPI: true 
+  # selects ALL podmonitors
+  podMonitorSelector: {} 
+  podMonitorNamespaceSelector: {}
+  # selects ALL servicemonitors
+  serviceMonitorSelector: {} 
+  serviceMonitorNamespaceSelector: {}
+  # selects NO rules - leverage ThanosRuler for alerts
+  ruleSelector: null 
+  ruleNamespaceSelector: null
+  replicas: 2
+  shards: 1 # only set on initial deploy - prometheus-autoscaler will control this afterward
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 15Gi
+    requests:
+      cpu: 500m
+      memory: 5Gi
+  thanos:
+    objectStorageConfig:
+      key: thanos.yaml
+      name: thanos-objectstorage
+  volumes:
+  - name: snapshot-upload-python-script
+    configMap:
+      name: snapshot-upload-python-script
+      defaultMode: 0777

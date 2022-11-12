@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.zbialik.io/name: prometheus-shard-autoscaler
+  name: prometheus-shard-autoscaler
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.zbialik.io/name: prometheus-shard-autoscaler
+  template:
+    metadata:
+      labels:
+        app.zbialik.io/name: prometheus-shard-autoscaler
+    spec:
+      automountServiceAccountToken: true
+      serviceAccount: prometheus-shard-autoscaler
+      serviceAccountName: prometheus-shard-autoscaler
+      containers:
+      - command:
+        - /venv/bin/kopf
+        args:
+        - run
+        - prometheus_shard_autoscaler/app.py
+        image: zach17/prometheus-autoscaler:latest
+        imagePullPolicy: Always
+        name: prometheus-shard-autoscaler
+        resources: 
+          requests:
+            cpu: 50m
+            memory: 150Mi
+          limits:
+            cpu: 1000m
+            memory: 500Mi
+        stdin: true
+        tty: true
+        envFrom:
+        - configMapRef:
+            name: prometheus-shard-autoscaler
+      dnsPolicy: ClusterFirst
